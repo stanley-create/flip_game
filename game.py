@@ -88,13 +88,20 @@ class FlipGame:
         elif line_type == 'diag2':
             for i in range(4): self.board[i, 3 - i] = 0
 
-    def check_winner(self):
-        for p in [1, 2]:
-            lines, jokers = self.scores[p]
-            opponent_lines = self.scores[3 - p][0]
-            if jokers >= 2 or (jokers == 1 and lines >= opponent_lines + 2):
-                self.game_over = True
-                self.winner = p
+def check_winner(self):
+        # 檢查盤面上是否還存在鬼牌 (值為 2 或 -2)
+        has_joker = np.any((self.board == 2) | (self.board == -2))
+        
+        # 如果棋盤上完全沒有鬼牌了，遊戲才結束
+        if not has_joker:
+            self.game_over = True
+            # 結算誰勝出 (以分數高的為主)
+            if self.scores[1][0] > self.scores[2][0]:
+                self.winner = 1
+            elif self.scores[2][0] > self.scores[1][0]:
+                self.winner = 2
+            else:
+                self.winner = None # 平手
 
 # =====================================================================
 # 🧠 評估函數 (Heuristic Evaluation) —— 演算法的靈魂
