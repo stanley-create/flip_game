@@ -1,0 +1,85 @@
+/* =====================================================================
+   🌌 全域背景
+   ===================================================================== */
+.stApp {
+    background-color: #0B0F19 !important;
+}
+
+/* =====================================================================
+   🧱 核心方塊排版（強制定型，包含被禁用時的狀態）
+   ===================================================================== */
+div[data-testid="stHorizontalBlock"] .stButton > button,
+div[data-testid="stHorizontalBlock"] .stButton > button:disabled {
+    width: 100% !important;
+    height: 85px !important;
+    min-width: 85px !important;
+    border-radius: 8px !important;
+    font-size: 24px !important;
+    font-weight: 900 !important;
+    border: none !important;
+    opacity: 1.0 !important; /* 防止 disabled 時變透明 */
+    transition: transform 0.1s ease !important;
+}
+
+/* =====================================================================
+   🎨 使用「屬性包含選擇器」直接根據按鈕的名字或特徵強制注入顏色
+   ===================================================================== */
+
+/* 一、正面一般牌：按鈕名字裡有「🟦」就強制變淺藍色 */
+div[data-testid="stHorizontalBlock"] .stButton > button[aria-label*="🟦"],
+div[data-testid="stHorizontalBlock"] .stButton > button[aria-label*="🟦"]:disabled {
+    background-color: #3B82F6 !important;
+    color: #FFFFFF !important;
+    box-shadow: 0px 5px 0px #1D4ED8 !important;
+}
+
+/* 二、背面（不管是鬼牌還是一般）：按鈕名字裡有「🟥」就強制變灰紅色 */
+div[data-testid="stHorizontalBlock"] .stButton > button[aria-label*="🟥"],
+div[data-testid="stHorizontalBlock"] .stButton > button[aria-label*="🟥"]:disabled {
+    background-color: #CD6668 !important;
+    color: #FFFFFF !important;
+    box-shadow: 0px 5px 0px #8C3D3F !important;
+}
+
+/* 三、正面鬼牌：按鈕名字裡有「🃏」就強制變紅白相間 */
+div[data-testid="stHorizontalBlock"] .stButton > button[aria-label*="🃏"],
+div[data-testid="stHorizontalBlock"] .stButton > button[aria-label*="🃏"]:disabled {
+    background: repeating-linear-gradient(
+        45deg,
+        #EF4444,
+        #EF4444 12px,
+        #FFFFFF 12px,
+        #FFFFFF 24px
+    ) !important;
+    color: #000000 !important;
+    border: 3px solid #FBBF24 !important;
+    box-shadow: 0px 5px 0px #B91C1C !important;
+}
+
+/* 四、沒放牌：按鈕名字裡有「⬛」或是純空格，就強制變黑色槽 */
+div[data-testid="stHorizontalBlock"] .stButton > button[aria-label*="⬛"],
+div[data-testid="stHorizontalBlock"] .stButton > button[aria-label*="⬛"]:disabled {
+    background-color: #0D111A !important;
+    color: #2D3748 !important;
+    border: 2px dashed #1E293B !important;
+    box-shadow: inset 0px 4px 8px rgba(0,0,0,0.8) !important;
+}
+
+/* 📊 棋盤座標標籤 */
+.axis-label {
+    font-size: 20px;
+    font-weight: 800;
+    color: #4A5568;
+    text-align: center;
+    line-height: 85px;
+    user-select: none;
+}
+
+.status-text {
+    font-size: 17px;
+    font-weight: bold;
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+    margin: 10px 0;
+}
