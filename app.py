@@ -19,9 +19,12 @@ if os.path.exists("styles.css"):
     with open("styles.css", "r", encoding="utf-8") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# 💡【核心修正】定義載入 90% 強大盲棋大腦的模型路徑
-# 建議將 best_ppo_blind_v2_model.zip 檔案放在與本程式相同的資料夾中
-RL_MODEL_PATH = "best_ppo_blind_v2_model"
+# 💡【難度對應字典】定義不同難度對應的模型檔案名稱
+DIFFICULTY_MODELS = {
+    "🌱 簡單模式": "best_ppo_blind_v2_model_easy",
+    "🔥 中等難度 (94%)": "best_ppo_blind_v2_model_94",
+    "💀 地獄模式 (X%)": "best_ppo_blind_v2_model_hell"
+}
 
 # 初始化 Session State
 if 'game' not in st.session_state:
@@ -31,13 +34,7 @@ if 'game' not in st.session_state:
     st.session_state.hint_move = None
     st.session_state.prev_board = np.zeros((4, 4), dtype=int)
     st.session_state.go_first = "先手 (我布置鬼牌)"
-    
-    # 💡 網頁啟動時，在背景偷偷載入 90% 勝率的強化學習大腦
-    if os.path.exists(RL_MODEL_PATH + ".zip"):
-        st.session_state.rl_model = PPO.load(RL_MODEL_PATH)
-    else:
-        st.session_state.rl_model = None
-        st.sidebar.error("⚠️ 找不到 best_ppo_blind_v2_model.zip 模型檔案！AI 將流於隨機落子。")
+    st.session_state.current_model_path = ""
 
 game = st.session_state.game
 
@@ -50,9 +47,29 @@ def check_custom_game_over(board_matrix):
     is_full = not np.any(board_matrix == 0)
     return (not has_joker) or is_full
 
-# 💡【新增】強化學習大腦決策引擎
+# 💡【核心修正】動態載入 PPO 大腦模型函數
+def load_selected_model(model_path):
+    """ 檢查並動態載入模型，避免重複載入卡頓 """
+    if st.session_state.get('current_model_path') == model_path and 'rl_model' in st.session_state:
+        return st.session_state.rl_model
+        
+    if os.path.exists(model_path + ".zip"):
+        try:
+            model = PPO.load(model_path)
+            st.session_state.current_model_path = model_path
+            st.session_state.rl_model = model
+            return model
+        except Exception as e:
+            st.sidebar.error(f"❌ 模型損壞或載入出錯: {str(e)}")
+            return None
+    else:
+        st.session_state.rl_model = None
+        st.session_state.current_model_path = ""
+        return None
+
+# 💡 強化學習大腦決策引擎
 def get_rl_ai_move(game_instance, model):
-    """ 讓 90% 勝率的大腦戴上盲棋面罩看盤面，並吐出最佳落子動作 """
+    """ 讓指定難度的大腦戴上盲棋面罩看盤面，並吐出最佳落子動作 """
     if model is None:
         # 如果模型沒載入成功，退化成隨機落子安全防線
         empty_slots = np.argwhere(game_instance.board == 0)
@@ -75,13 +92,28 @@ def get_rl_ai_move(game_instance, model):
     return y, x, side
 
 # =====================================================================
-# ⚙️ 側邊欄
+# ⚙️ 側邊欄 (新增難度切換)
 # =====================================================================
 with st.sidebar:
     st.title("😈 地獄盲棋控制")
     st.write("---")
-    if st.session_state.rl_model is not None:
-        st.success("🤖 強化學習大腦：90% 勝率 PPO 模型已成功連線！")
+    
+    # 🆕 難度選擇下拉選單
+    selected_diff = st.selectbox(
+        "🧠 選擇 AI 大腦難度等級",
+        list(DIFFICULTY_MODELS.keys()),
+        index=1 # 預設選擇 94% 中等難度
+    )
+    
+    # 動態載入當前選擇的難度大腦
+    target_path = DIFFICULTY_MODELS[selected_diff]
+    current_brain = load_selected_model(target_path)
+    
+    if current_brain is not None:
+        st.success(f"🟢 {selected_diff} 大腦已成功連線！")
+    else:
+        st.error(f"⚠️ 找不到 `{target_path}.zip`！\n該難度下 AI 將流於隨機落子。")
+        
     st.write("---")
     st.info("💡 盲棋規則：\n當鬼牌翻轉成【反面】時，會變成灰紅色且褪去文字，完美偽裝成一般背面方塊。")
     if st.button("🔄 重置整個賽局", type="primary", use_container_width=True):
@@ -96,7 +128,7 @@ with st.sidebar:
 st.title("🧱 賽博正反棋 : TILE MATRIX")
 selected_mode = st.selectbox(
     "🤖 核心對弈模式切換", 
-    ["人機對戰 (VS 90%勝率 PPO大腦)", "神級AI最佳解提示", "雙人本地對戰"],
+    ["人機對戰 (VS PPO強化學習大腦)", "神級AI最佳解提示", "雙人本地對戰"],
     key="play_mode"
 )
 st.write("---")
@@ -140,7 +172,7 @@ with col_left:
         st.write("---")
         
         st.write("🎨 **選擇本次落子面向**")
-        if not (selected_mode == "人機對戰 (VS 90%勝率 PPO大腦)" and game.current_player == 2):
+        if not (selected_mode == "人機對戰 (VS PPO強化學習大腦)" and game.current_player == 2):
             side_to_place = st.radio(
                 "選擇面向：", [1, -1], 
                 format_func=lambda x: "🟦 淺藍色 (正面)" if x==1 else "🟥 灰紅色 (反面)"
@@ -194,7 +226,7 @@ with col_center:
                         else: st.toast(f"❌ {msg}")
                     
                     elif st.session_state.phase == "PLAY":
-                        if not (selected_mode == "人機對戰 (VS 90%勝率 PPO大腦)" and game.current_player == 2):
+                        if not (selected_mode == "人機對戰 (VS PPO強化學習大腦)" and game.current_player == 2):
                             success, msg = game.step(y, x, side_to_place)
                             if success:
                                 st.session_state.hint_move = None
@@ -221,14 +253,14 @@ with col_right:
         if game.current_player == 1:
             st.markdown("<div class='status-text' style='background-color: rgba(59, 130, 246, 0.15); color: #60A5FA; border: 1px solid #3B82F6;'>🔵 輪到你落子 (藍方)</div>", unsafe_allow_html=True)
         else:
-            st.markdown("<div class='status-text' style='background-color: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid #EF4444;'>🔴 輪到 AI 下棋 (紅方)</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='status-text' style='background-color: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid #EF4444;'>🔴 輪到 AI 下棋 ({selected_diff})</div>", unsafe_allow_html=True)
     else:
         joker_winner = "藍方" if game.scores[1][0] > game.scores[2][0] else "紅方"
         if game.scores[1][0] == game.scores[2][0]: joker_winner = "平手"
         st.markdown(f"<div class='status-text' style='background-color: #10B981; color: white;'>🏆 鬼牌已全數沒收！最終勝者：{joker_winner}！</div>", unsafe_allow_html=True)
 
 # =====================================================================
-# 🧠 AI 背景運算引擎 (💡 強化學習精算版)
+# 🧠 AI 背景運算引擎 (💡 支援動態切換大腦難度)
 # =====================================================================
 if st.session_state.phase == "PREPARE" and st.session_state.go_first == "後手 (AI 布置鬼牌)":
     with col_right:
@@ -236,7 +268,7 @@ if st.session_state.phase == "PREPARE" and st.session_state.go_first == "後手 
             time.sleep(0.5)
             st.session_state.prev_board = game.board.copy()
             
-            # 布置鬼牌階段，若無訓練該動作，則採用隨機安全機制
+            # 布置鬼牌階段退化隨機安全機制
             empty_slots = np.argwhere(game.board == 0)
             idx = np.random.choice(len(empty_slots))
             move = (empty_slots[idx][0], empty_slots[idx][1], np.random.choice([1, -1]))
@@ -251,13 +283,13 @@ if st.session_state.phase == "PREPARE" and st.session_state.go_first == "後手 
 
 elif st.session_state.phase == "PLAY":
     # 💡 核心對決區：當輪到 AI (Player 2)
-    if selected_mode == "人機對戰 (VS 90%勝率 PPO大腦)" and game.current_player == 2:
+    if selected_mode == "人機對戰 (VS PPO強化學習大腦)" and game.current_player == 2:
         with col_right:
-            with st.spinner("🤖 PPO 大腦全速精算中..."):
+            with st.spinner(f"🤖 {selected_diff} 大腦全速精算中..."):
                 st.session_state.prev_board = game.board.copy()
                 time.sleep(0.3)
                 
-                # 💡【核心替換】啟動你練出來的最強強化學習模型做出決策
+                # 💡【核心改動】使用當前在側邊欄選擇的強化學習大腦模型做出決策
                 y, x, side = get_rl_ai_move(game, st.session_state.rl_model)
                 
                 success, msg = game.step(y, x, side)
@@ -276,8 +308,7 @@ elif st.session_state.phase == "PLAY":
     # 💡 提示模式區
     elif selected_mode == "神級AI最佳解提示" and st.session_state.hint_move is None:
         with col_right:
-            with st.spinner("🔮 PPO大腦計算最佳解中..."):
-                # 這裡同樣能調用強化學習模型給你最頂級的落子提示
+            with st.spinner(f"🔮 {selected_diff} 計算最佳解中..."):
                 y, x, side = get_rl_ai_move(game, st.session_state.rl_model)
                 st.session_state.hint_move = (y, x, side)
                 st.rerun()
