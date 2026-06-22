@@ -1,243 +1,171 @@
+import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
-import copy
+import requests
+import os
 import time
+import datetime
+from stable_baselines3 import PPO
+from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.monitor import Monitor
+from google.colab import drive
 
+# =====================================================================
+# 1. 掛載與路徑設定
+# =====================================================================
+drive.mount('/content/drive')
+MODEL_DIR = "/content/drive/MyDrive/AI"
+
+# 💡【全新出發】改用 v2 版本名稱，徹底拋棄之前壞掉的絕望大腦記憶
+MODEL_PATH = os.path.join(MODEL_DIR, "ppo_blind_v2_model")
+BEST_MODEL_PATH = os.path.join(MODEL_DIR, "best_ppo_blind_v2_model")
+RECORD_TXT_PATH = os.path.join(MODEL_DIR, "best_blind_v2_record.txt")
+
+GAS_URL = "https://script.google.com/macros/s/AKfycbwYE8yW0Vx3eR9W_LIadIMI9TVI0olXAT10YkCec6ZPdbken1kzX4k30CBEZ4Fm-d4o/exec"
+
+if not os.path.exists(MODEL_DIR):
+    os.makedirs(MODEL_DIR)
+
+# =====================================================================
+# 2. 核心遊戲邏輯（真實棋盤，保留 -2 記錄鬼牌）
+# =====================================================================
 class FlipGame:
     def __init__(self):
-        # 0=空, 1=正(一般), -1=反(一般), 2=正(鬼牌), -2=反(鬼牌)
+        self.reset()
+
+    def reset(self):
         self.board = np.zeros((4, 4), dtype=int)
-        self.current_player = 1
-        self.scores = {1: [0, 0], 2: [0, 0]}  # [條數, 鬼牌數]
         self.game_over = False
-        self.winner = None
 
-    def display(self):
-        symbols = {0: ' . ', 1: ' ○ ', -1: ' ● ', 2: ' ☼ ', -2: ' ☀ '}
-        print("\n   0  1  2  3 (X)")
-        for y in range(4):
-            row_str = f"{y} "
-            for x in range(4):
-                row_str += symbols[self.board[y, x]]
-            print(row_str)
-        print(f"玩家 1 得分: {self.scores[1][0]} 條, {self.scores[1][1]} 鬼牌")
-        print(f"玩家 2 得分: {self.scores[2][0]} 條, {self.scores[2][1]} 鬼牌\n")
-
-    def get_valid_moves(self):
-        valid_moves = []
-        for y in range(4):
-            for x in range(4):
-                if self.board[y, x] == 0:
-                    valid_moves.extend([(y, x, 1), (y, x, -1)])
-        return valid_moves
-
-    def step(self, y, x, side, is_joker=False):
+    def step(self, y, x, side):
         if self.board[y, x] != 0:
-            return False, "該位置已有卡牌"
+            return False
 
-        value = (2 if is_joker else 1) * side
-        self.board[y, x] = value
-
-        # 十字翻轉
-        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
-        for dy, dx in directions:
+        self.board[y, x] = side
+        for dy, dx in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
             ny, nx = y + dy, x + dx
             if 0 <= ny < 4 and 0 <= nx < 4 and self.board[ny, nx] != 0:
                 self.board[ny, nx] *= -1
+        return True
 
-        self.check_and_collect_lines()
-        self.check_winner()
-
-        if not self.game_over:
-            self.current_player = 3 - self.current_player
-        return True, "成功"
-
-    def check_and_collect_lines(self):
-        lines_to_collect = []
-        # 1. 橫列
-        for y in range(4):
-            row = self.board[y, :]
-            if np.all(row > 0) or np.all(row < 0):
-                lines_to_collect.append(('row', y, row.copy()))
-        # 2. 直行
-        for x in range(4):
-            col = self.board[:, x]
-            if np.all(col > 0) or np.all(col < 0):
-                lines_to_collect.append(('col', x, col.copy()))
-        # 3. 主對角線
-        diag1 = np.array([self.board[i, i] for i in range(4)])
-        if np.all(diag1 > 0) or np.all(diag1 < 0):
-            lines_to_collect.append(('diag1', None, diag1))
-        # 4. 副對角線
-        diag2 = np.array([self.board[i, 3 - i] for i in range(4)])
-        if np.all(diag2 > 0) or np.all(diag2 < 0):
-            lines_to_collect.append(('diag2', None, diag2))
-
-        if not lines_to_collect:
-            return
-
-        # 核心自動收線
-        line_type, idx, cells = lines_to_collect[0]
-        jokers_count = int(np.sum(np.abs(cells) == 2))
-        self.scores[self.current_player][0] += 1
-        self.scores[self.current_player][1] += jokers_count
-
-        if line_type == 'row': self.board[idx, :] = 0
-        elif line_type == 'col': self.board[:, idx] = 0
-        elif line_type == 'diag1':
-            for i in range(4): self.board[i, i] = 0
-        elif line_type == 'diag2':
-            for i in range(4): self.board[i, 3 - i] = 0
-
-    # 💡 修正縮進：成功歸隊到 FlipGame 類別中！
-    def check_winner(self):
-        # 檢查盤面上是否還存在鬼牌 (值為 2 或 -2)
-        has_joker = np.any((self.board == 2) | (self.board == -2))
-        
-        # 如果棋盤上完全沒有鬼牌了，遊戲結束
-        if not has_joker:
-            self.game_over = True
-            # 結算誰勝出 (以分數高的為主)
-            if self.scores[1][0] > self.scores[2][0]:
-                self.winner = 1
-            elif self.scores[2][0] > self.scores[1][0]:
-                self.winner = 2
-            else:
-                self.winner = None  # 平手
+def check_custom_game_over(board_matrix):
+    has_joker = np.any((board_matrix == 2) | (board_matrix == -2))
+    is_full = not np.any(board_matrix == 0)
+    return (not has_joker) or is_full
 
 # =====================================================================
-# 🧠 評估函數 (Heuristic Evaluation) —— 演算法的靈魂
+# 3. 強化學習環境封裝（純淨盲棋面罩版 🎭 - 移除危險投降機制）
 # =====================================================================
-def evaluate_board(game, player):
-    """評估目前盤面對於指定 player 的有利程度"""
-    if game.game_over:
-        return 9999 if game.winner == player else -9999
+class FlipGameEnv(gym.Env):
+    def __init__(self):
+        super().__init__()
+        self.game = FlipGame()
+        self.action_space = spaces.Discrete(32)
+        self.observation_space = spaces.Box(low=-1, high=2, shape=(4, 4), dtype=np.int32)
 
-    opp = 3 - player
-    # 基礎分數 = (我的條數 - 敵方條數) * 100 + (我的鬼牌 - 敵方鬼牌) * 300
-    score = (game.scores[player][0] - game.scores[opp][0]) * 100 \
-          + (game.scores[player][1] - game.scores[opp][1]) * 300
+    def _get_masked_obs(self):
+        """ 🎭 盲棋面罩：將所有 -2 (鬼牌背面) 偽裝成 -1 """
+        obs = self.game.board.copy()
+        obs[obs == -2] = -1
+        return obs.astype(np.float32)
 
-    # 潛力分：檢查盤面上快要連成線的「聽牌」狀態
-    for y in range(4):
-        # 橫列潛力
-        row = game.board[y, :]
-        score += np.sum(row == (1 if player == 1 else -1)) * 5
-    return score
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.game.reset()
 
-# =====================================================================
-# 🚀 終極 Minimax 核心 (帶 Alpha-Beta 剪枝)
-# =====================================================================
-def minimax(game_state, depth, alpha, beta, maximizing_player, target_player):
-    if depth == 0 or game_state.game_over:
-        return evaluate_board(game_state, target_player), None
+        joker_positions = np.random.choice(16, size=2, replace=False)
+        for pos in joker_positions:
+            y, x = pos // 4, pos % 4
+            side = np.random.choice([2, -2])
+            self.game.board[y, x] = side
 
-    valid_moves = game_state.get_valid_moves()
-    if not valid_moves:
-        return evaluate_board(game_state, target_player), None
+        return self._get_masked_obs(), {}
 
-    # 🔥 動作排序優化 (Move Ordering)：優先評估可能有高分的步，提升剪枝效率
-    valid_moves.sort(key=lambda m: (abs(m[0]-1.5) + abs(m[1]-1.5))) 
+    def step(self, action):
+        y, x, side = action // 8, (action % 8) // 2, 1 if action % 2 == 0 else -1
 
-    best_move = None
+        valid = self.game.step(y, x, side)
 
-    if maximizing_player:
-        max_eval = -float('inf')
-        for y, x, side in valid_moves:
-            # 複製虛擬盤面進行預判
-            sim_game = copy.deepcopy(game_state)
-            sim_game.step(y, x, side)
-            
-            # 往下搜尋（注意切換成對手的視角）
-            is_next_max = (sim_game.current_player == target_player)
-            ev, _ = minimax(sim_game, depth - 1, alpha, beta, is_next_max, target_player)
-            
-            if ev > max_eval:
-                max_eval = ev
-                best_move = (y, x, side)
-            alpha = max(alpha, ev)
-            if beta <= alpha: # 💥 Beta 剪枝
-                break
-        return max_eval, best_move
-    else:
-        min_eval = float('inf')
-        for y, x, side in valid_moves:
-            sim_game = copy.deepcopy(game_state)
-            sim_game.step(y, x, side)
-            
-            is_next_max = (sim_game.current_player == target_player)
-            ev, _ = minimax(sim_game, depth - 1, alpha, beta, is_next_max, target_player)
-            
-            if ev < min_eval:
-                min_eval = ev
-                best_move = (y, x, side)
-            beta = min(beta, ev)
-            if beta <= alpha: # 💥 Alpha 剪枝
-                break
-        return min_eval, best_move
+        # 處罰犯規（重複落子）
+        if not valid:
+            reward = -100
+            return self._get_masked_obs(), reward, True, False, {}
 
-def get_god_hint(game, depth=5):
-    """調用深度 5 的 Minimax 獲取神級提示"""
-    current_p = game.current_player
-    _, move = minimax(game, depth, -float('inf'), float('inf'), True, current_p)
-    return move
+        game_over = check_custom_game_over(self.game.board)
 
-# =====================================================================
-# 遊戲主控制流
-# =====================================================================
-def play_game():
-    game = FlipGame()
-    print("====================================")
-    print("=== 4x4 正反棋：深度 5 終極 AI 版 ===")
-    print("====================================")
-    mode = input("選擇模式 (A: 雙人本地, B: 神級AI最佳解提示, C: 人機對戰(VS 深度5 AI)): ").upper()
-
-    print("\n【準備階段】玩家 1 請放置兩張 Joker 鬼牌")
-    for i in range(2):
-        game.display()
-        while True:
-            try:
-                inputs = input(f"請輸入第 {i+1} 張 Joker 的座標與面向 (y x side): ").split()
-                y, x, side = map(int, inputs)
-                success, msg = game.step(y, x, side, is_joker=True)
-                if success: break
-                print(f"錯誤: {msg}")
-            except (ValueError, IndexError):
-                print("輸入格式錯誤。")
-    
-    game.current_player = 2
-
-    while not game.game_over:
-        game.display()
-        print(f"--- 輪到玩家 {game.current_player} ---")
-        
-        # 模式 B：神級提示
-        if mode == 'B':
-            t0 = time.time()
-            print("🔮 神級 AI 正在通靈預判 5 步棋...")
-            hint = get_god_hint(game, depth=5)
-            print(f"💡 [AI 最佳提示] (耗時 {time.time()-t0:.2f}秒) -> 座標: ({hint[0]}, {hint[1]}) 面向: {hint[2]}")
-
-        # 模式 C：人機對戰
-        if mode == 'C' and game.current_player == 2:
-            print("🤖 深度 5 AI 計算中...")
-            t0 = time.time()
-            move = get_god_hint(game, depth=5)
-            if move:
-                print(f"🤖 AI 落子 (耗時 {time.time()-t0:.2f}秒) -> 座標: ({move[0]}, {move[1]}) 面向: {move[2]}")
-                game.step(move[0], move[1], move[2])
+        if game_over:
+            p1 = np.sum(self.game.board > 0)
+            p2 = np.sum(self.game.board < 0)
+            if p1 > p2: reward = 100
+            elif p1 < p2: reward = -100
+            else: reward = 0
         else:
-            while True:
-                try:
-                    inputs = input("請輸入卡牌座標與面向 (y x side): ").split()
-                    y, x, side = map(int, inputs)
-                    success, msg = game.step(y, x, side)
-                    if success: break
-                    print(f"錯誤: {msg}")
-                except (ValueError, IndexError):
-                    print("輸入格式錯誤。")
-                
-    game.display()
-    print(f"🎉 遊戲結束！恭喜 玩家 {game.winner} 獲得最終勝利！")
+            reward = 1 # 正常落子的生存獎勵
 
-if __name__ == "__main__":
-    play_game()
+        return self._get_masked_obs(), reward, game_over, False, {}
+
+# =====================================================================
+# 4. 初始化環境與模型
+# =====================================================================
+env = FlipGameEnv()
+env = Monitor(env)
+
+if os.path.exists(MODEL_PATH + ".zip"):
+    print("🤖 偵測到 v2 盲棋模型，載入中繼續訓練...")
+    model = PPO.load(MODEL_PATH, env=env)
+else:
+    print("🆕 建立全新的 v2 PPO 模型 (純淨盲棋公平版)...")
+    model = PPO("MlpPolicy", env, verbose=1, ent_coef=0.02)
+
+# =====================================================================
+# 5. 訓練主迴圈（安全持久化紀錄）
+# =====================================================================
+if os.path.exists(RECORD_TXT_PATH):
+    try:
+        with open(RECORD_TXT_PATH, "r") as f:
+            lines = f.read().splitlines()
+            best_mean_reward = float(lines[0])
+            best_win_rate = float(lines[1])
+        print(f"💾 成功讀取 v2 最高紀錄！歷史最高勝率: {best_win_rate:.2f}%")
+    except Exception as e:
+        print(f"⚠️ 讀取紀錄檔失敗，重新初始化: {e}")
+        best_mean_reward = -np.inf
+        best_win_rate = -1.0
+else:
+    best_mean_reward = -np.inf
+    best_win_rate = -1.0
+
+print("🚀 開始健康訓練（移除投降干擾，AI 將逐步學會不犯規與獲勝）...")
+for i in range(1000):
+    model.learn(total_timesteps=5000, reset_num_timesteps=False)
+    model.save(MODEL_PATH)
+    
+    mean_reward, _ = evaluate_policy(model, env, n_eval_episodes=20)
+    current_win_rate = (mean_reward + 100) / 2 
+
+    if mean_reward > best_mean_reward:
+        best_mean_reward = mean_reward
+        best_win_rate = current_win_rate
+        model.save(BEST_MODEL_PATH)
+        with open(RECORD_TXT_PATH, "w") as f:
+            f.write(f"{best_mean_reward}\n{best_win_rate}")
+        print(f"🎉 突破紀錄！新最佳勝率: {best_win_rate:.2f}%，已安全存檔！")
+    else:
+        print(f" 🚩 本輪評估勝率: {current_win_rate:.2f}% (未突破歷史最高 {best_win_rate:.2f}%)")
+
+    total_steps = int(model.num_timesteps)
+    payload = {
+        "steps": total_steps,
+        "avg_reward": float(round(mean_reward, 2)),
+        "win_rate": float(round(current_win_rate, 2)),
+        "best_win_rate": float(round(best_win_rate, 2))
+    }
+
+    try:
+        response = requests.post(GAS_URL, json=payload, timeout=15)
+        response.raise_for_status()
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] [{total_steps} 步] 數據已同步")
+    except Exception as e:
+        print(f"⚠️ 同步暫時失敗: {e}")
+
+    time.sleep(5)
