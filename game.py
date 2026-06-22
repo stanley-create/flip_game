@@ -8,13 +8,7 @@ import datetime
 from stable_baselines3 import PPO
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.monitor import Monitor
-from google.colab import drive
 
-# =====================================================================
-# 1. 掛載與路徑設定
-# =====================================================================
-drive.mount('/content/drive')
-MODEL_DIR = "/content/drive/MyDrive/AI"
 
 # 💡【全新出發】改用 v2 版本名稱，徹底拋棄之前壞掉的絕望大腦記憶
 MODEL_PATH = os.path.join(MODEL_DIR, "ppo_blind_v2_model")
