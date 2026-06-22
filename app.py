@@ -2,17 +2,26 @@ import streamlit as st
 import numpy as np
 import copy
 import time
+import os
+# 💡 導入強化學習載入工具
+from stable_baselines3 import PPO
 
-# 載入核心邏輯
-from game import FlipGame, get_god_hint
+# 載入核心邏輯 (保留 FlipGame 規則結構)
+from game import FlipGame
 
 # =====================================================================
 # 🧰 載入外部 CSS 檔案 (寬螢幕佈局)
 # =====================================================================
 st.set_page_config(page_title="FlipGame 戰術儀表板", layout="wide")
 
-with open("styles.css", "r", encoding="utf-8") as f:
-    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+# 安全讀取 CSS
+if os.path.exists("styles.css"):
+    with open("styles.css", "r", encoding="utf-8") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+# 💡【核心修正】定義載入 90% 強大盲棋大腦的模型路徑
+# 建議將 best_ppo_blind_v2_model.zip 檔案放在與本程式相同的資料夾中
+RL_MODEL_PATH = "best_ppo_blind_v2_model"
 
 # 初始化 Session State
 if 'game' not in st.session_state:
@@ -22,25 +31,57 @@ if 'game' not in st.session_state:
     st.session_state.hint_move = None
     st.session_state.prev_board = np.zeros((4, 4), dtype=int)
     st.session_state.go_first = "先手 (我布置鬼牌)"
+    
+    # 💡 網頁啟動時，在背景偷偷載入 90% 勝率的強化學習大腦
+    if os.path.exists(RL_MODEL_PATH + ".zip"):
+        st.session_state.rl_model = PPO.load(RL_MODEL_PATH)
+    else:
+        st.session_state.rl_model = None
+        st.sidebar.error("⚠️ 找不到 best_ppo_blind_v2_model.zip 模型檔案！AI 將流於隨機落子。")
 
 game = st.session_state.game
 
 def get_coord_name(y, x):
     return f"{['A', 'B', 'C', 'D'][y]}{x+1}"
 
-# 🆕 新增自訂勝負檢查邏輯：兩張鬼牌沒收（棋盤上完全沒有 2 或 -2）前，都不算結束
+# 新增自訂勝負檢查邏輯
 def check_custom_game_over(board_matrix):
-    # 檢查棋盤內是否還殘留鬼牌 (正面2 或 反面-2)
     has_joker = np.any((board_matrix == 2) | (board_matrix == -2))
-    # 如果鬼牌全沒了，或者格子全滿了，遊戲才結束
     is_full = not np.any(board_matrix == 0)
     return (not has_joker) or is_full
+
+# 💡【新增】強化學習大腦決策引擎
+def get_rl_ai_move(game_instance, model):
+    """ 讓 90% 勝率的大腦戴上盲棋面罩看盤面，並吐出最佳落子動作 """
+    if model is None:
+        # 如果模型沒載入成功，退化成隨機落子安全防線
+        empty_slots = np.argwhere(game_instance.board == 0)
+        idx = np.random.choice(len(empty_slots))
+        return empty_slots[idx][0], empty_slots[idx][1], np.random.choice([1, -1])
+    
+    # 🎭 1. 幫大腦戴上盲棋面罩 (將真實棋盤的 -2 鬼牌背面轉為 -1)
+    masked_obs = game_instance.board.copy()
+    masked_obs[masked_obs == -2] = -1
+    masked_obs = masked_obs.astype(np.float32)
+    
+    # 2. 讓 PPO 大腦進行預測 (predict)
+    action, _ = model.predict(masked_obs, deterministic=True)
+    
+    # 3. 將大腦輸出的 0~31 動作編號，還原回 (y, x, side) 座標規格
+    action = int(action)
+    y = action // 8
+    x = (action % 8) // 2
+    side = 1 if action % 2 == 0 else -1
+    return y, x, side
 
 # =====================================================================
 # ⚙️ 側邊欄
 # =====================================================================
 with st.sidebar:
     st.title("😈 地獄盲棋控制")
+    st.write("---")
+    if st.session_state.rl_model is not None:
+        st.success("🤖 強化學習大腦：90% 勝率 PPO 模型已成功連線！")
     st.write("---")
     st.info("💡 盲棋規則：\n當鬼牌翻轉成【反面】時，會變成灰紅色且褪去文字，完美偽裝成一般背面方塊。")
     if st.button("🔄 重置整個賽局", type="primary", use_container_width=True):
@@ -55,7 +96,7 @@ with st.sidebar:
 st.title("🧱 賽博正反棋 : TILE MATRIX")
 selected_mode = st.selectbox(
     "🤖 核心對弈模式切換", 
-    ["人機對戰 (VS 深度5 AI)", "神級AI最佳解提示", "雙人本地對戰"],
+    ["人機對戰 (VS 90%勝率 PPO大腦)", "神級AI最佳解提示", "雙人本地對戰"],
     key="play_mode"
 )
 st.write("---")
@@ -66,7 +107,7 @@ st.write("---")
 col_left, col_center, col_right = st.columns([1, 1.8, 1.2], gap="large")
 
 # ---------------------------------------------------------------------
-# ⬅️ 左側欄：動作、落子面向與先後手選擇
+# ⬅️ 左側欄
 # ---------------------------------------------------------------------
 with col_left:
     st.markdown("### 🎛️ 戰術動作")
@@ -99,7 +140,7 @@ with col_left:
         st.write("---")
         
         st.write("🎨 **選擇本次落子面向**")
-        if not (selected_mode == "人機對戰 (VS 深度5 AI)" and game.current_player == 2):
+        if not (selected_mode == "人機對戰 (VS 90%勝率 PPO大腦)" and game.current_player == 2):
             side_to_place = st.radio(
                 "選擇面向：", [1, -1], 
                 format_func=lambda x: "🟦 淺藍色 (正面)" if x==1 else "🟥 灰紅色 (反面)"
@@ -126,17 +167,11 @@ with col_center:
         for x in range(4):
             val = game.board[y, x]
             
-            # 💡 對應 Emoji 屬性標記上色機制
-            if val == 0:
-                button_text = "⬛"      
-            elif val == 1: 
-                button_text = "🟦"      
-            elif val == -1: 
-                button_text = "🟥"      
-            elif val == 2:
-                button_text = "🃏 J"    
-            elif val == -2:
-                button_text = "🟥 "     # 鬼牌背面
+            if val == 0: button_text = "⬛"      
+            elif val == 1: button_text = "🟦"      
+            elif val == -1: button_text = "🟥"      
+            elif val == 2: button_text = "🃏 J"    
+            elif val == -2: button_text = "🟥 "     # 鬼牌背面
                 
             if selected_mode == "神級AI最佳解提示" and st.session_state.hint_move and (y, x) == (st.session_state.hint_move[0], st.session_state.hint_move[1]):
                 button_text = f"⚡{button_text}"
@@ -153,17 +188,16 @@ with col_center:
                         if success:
                             st.session_state.jokers_placed += 1
                             if st.session_state.jokers_placed >= 2:
-                                game.current_player = 2 # 先手玩家擺完，常規換 AI 
+                                game.current_player = 2 
                                 st.session_state.phase = "PLAY"
                             st.rerun()
                         else: st.toast(f"❌ {msg}")
                     
                     elif st.session_state.phase == "PLAY":
-                        if not (selected_mode == "人機對戰 (VS 深度5 AI)" and game.current_player == 2):
+                        if not (selected_mode == "人機對戰 (VS 90%勝率 PPO大腦)" and game.current_player == 2):
                             success, msg = game.step(y, x, side_to_place)
                             if success:
                                 st.session_state.hint_move = None
-                                # 🆕 核心修正：改用我們自訂的「鬼牌是否被沒收」來判定遊戲結束
                                 if check_custom_game_over(game.board): 
                                     st.session_state.phase = "OVER"
                                 st.rerun()
@@ -189,50 +223,61 @@ with col_right:
         else:
             st.markdown("<div class='status-text' style='background-color: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid #EF4444;'>🔴 輪到 AI 下棋 (紅方)</div>", unsafe_allow_html=True)
     else:
-        # 結算誰勝出
         joker_winner = "藍方" if game.scores[1][0] > game.scores[2][0] else "紅方"
         if game.scores[1][0] == game.scores[2][0]: joker_winner = "平手"
         st.markdown(f"<div class='status-text' style='background-color: #10B981; color: white;'>🏆 鬼牌已全數沒收！最終勝者：{joker_winner}！</div>", unsafe_allow_html=True)
 
 # =====================================================================
-# 🧠 AI 背景運算引擎 (包含自訂勝負判定)
+# 🧠 AI 背景運算引擎 (💡 強化學習精算版)
 # =====================================================================
 if st.session_state.phase == "PREPARE" and st.session_state.go_first == "後手 (AI 布置鬼牌)":
     with col_right:
         with st.spinner("🤖 AI 正在精算布置鬼牌位置..."):
             time.sleep(0.5)
             st.session_state.prev_board = game.board.copy()
-            move = get_god_hint(game, depth=5)
-            if not move:
-                empty_slots = np.argwhere(game.board == 0)
-                idx = np.random.choice(len(empty_slots))
-                move = (empty_slots[idx][0], empty_slots[idx][1], np.random.choice([1, -1]))
+            
+            # 布置鬼牌階段，若無訓練該動作，則採用隨機安全機制
+            empty_slots = np.argwhere(game.board == 0)
+            idx = np.random.choice(len(empty_slots))
+            move = (empty_slots[idx][0], empty_slots[idx][1], np.random.choice([1, -1]))
             
             game.step(move[0], move[1], move[2], is_joker=True)
             st.session_state.jokers_placed += 1
             
             if st.session_state.jokers_placed >= 2:
-                st.session_state.game.current_player = 1 # AI 擺完，強制換玩家開常規第一步
+                st.session_state.game.current_player = 1 
                 st.session_state.phase = "PLAY"
             st.rerun()
 
 elif st.session_state.phase == "PLAY":
-    if selected_mode == "人機對戰 (VS 深度5 AI)" and game.current_player == 2:
+    # 💡 核心對決區：當輪到 AI (Player 2)
+    if selected_mode == "人機對戰 (VS 90%勝率 PPO大腦)" and game.current_player == 2:
         with col_right:
-            with st.spinner("🤖 AI 全速算棋中..."):
+            with st.spinner("🤖 PPO 大腦全速精算中..."):
                 st.session_state.prev_board = game.board.copy()
-                time.sleep(0.4)
-                move = get_god_hint(game, depth=5)
-                if move:
-                    game.step(move[0], move[1], move[2])
-                    # 🆕 AI 下完後同樣以新規則檢查是否結束
-                    if check_custom_game_over(game.board): 
-                        st.session_state.phase = "OVER"
-                    st.rerun()
+                time.sleep(0.3)
+                
+                # 💡【核心替換】啟動你練出來的最強強化學習模型做出決策
+                y, x, side = get_rl_ai_move(game, st.session_state.rl_model)
+                
+                success, msg = game.step(y, x, side)
+                
+                # 安全防禦機制：防止 AI 預測出不合法的步數導致畫面死鎖
+                if not success:
+                    empty_slots = np.argwhere(game.board == 0)
+                    if len(empty_slots) > 0:
+                        idx = np.random.choice(len(empty_slots))
+                        game.step(empty_slots[idx][0], empty_slots[idx][1], np.random.choice([1, -1]))
+                
+                if check_custom_game_over(game.board): 
+                    st.session_state.phase = "OVER"
+                st.rerun()
 
+    # 💡 提示模式區
     elif selected_mode == "神級AI最佳解提示" and st.session_state.hint_move is None:
         with col_right:
-            with st.spinner("🔮 計算最佳解中..."):
-                hint = get_god_hint(game, depth=5)
-                st.session_state.hint_move = hint
+            with st.spinner("🔮 PPO大腦計算最佳解中..."):
+                # 這裡同樣能調用強化學習模型給你最頂級的落子提示
+                y, x, side = get_rl_ai_move(game, st.session_state.rl_model)
+                st.session_state.hint_move = (y, x, side)
                 st.rerun()
