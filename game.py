@@ -88,11 +88,12 @@ class FlipGame:
         elif line_type == 'diag2':
             for i in range(4): self.board[i, 3 - i] = 0
 
-def check_winner(self):
+    # 💡 修正縮進：成功歸隊到 FlipGame 類別中！
+    def check_winner(self):
         # 檢查盤面上是否還存在鬼牌 (值為 2 或 -2)
         has_joker = np.any((self.board == 2) | (self.board == -2))
         
-        # 如果棋盤上完全沒有鬼牌了，遊戲才結束
+        # 如果棋盤上完全沒有鬼牌了，遊戲結束
         if not has_joker:
             self.game_over = True
             # 結算誰勝出 (以分數高的為主)
@@ -101,7 +102,7 @@ def check_winner(self):
             elif self.scores[2][0] > self.scores[1][0]:
                 self.winner = 2
             else:
-                self.winner = None # 平手
+                self.winner = None  # 平手
 
 # =====================================================================
 # 🧠 評估函數 (Heuristic Evaluation) —— 演算法的靈魂
@@ -135,7 +136,6 @@ def minimax(game_state, depth, alpha, beta, maximizing_player, target_player):
         return evaluate_board(game_state, target_player), None
 
     # 🔥 動作排序優化 (Move Ordering)：優先評估可能有高分的步，提升剪枝效率
-    # 這能讓深度 5 的計算速度加快數倍！
     valid_moves.sort(key=lambda m: (abs(m[0]-1.5) + abs(m[1]-1.5))) 
 
     best_move = None
@@ -155,7 +155,7 @@ def minimax(game_state, depth, alpha, beta, maximizing_player, target_player):
                 max_eval = ev
                 best_move = (y, x, side)
             alpha = max(alpha, ev)
-            if beta <= alpha: # 💥 Beta 剪枝：後面不用算了，直接砍掉
+            if beta <= alpha: # 💥 Beta 剪枝
                 break
         return max_eval, best_move
     else:
