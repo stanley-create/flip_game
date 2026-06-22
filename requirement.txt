@@ -1,0 +1,4 @@
+streamlit
+numpy
+stable-baselines3
+gymnasium
