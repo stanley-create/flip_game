@@ -99,27 +99,6 @@ class FlipGameEnv(gym.Env):
             reward = -0.1
 
         return self._get_masked_obs(), reward, game_over, False, {}
-        y, x, side = action // 8, (action % 8) // 2, 1 if action % 2 == 0 else -1
-
-        valid = self.game.step(y, x, side)
-
-        # 處罰犯規（重複落子）
-        if not valid:
-            reward = -100
-            return self._get_masked_obs(), reward, True, False, {}
-
-        game_over = check_custom_game_over(self.game.board)
-
-        if game_over:
-            p1 = np.sum(self.game.board > 0)
-            p2 = np.sum(self.game.board < 0)
-            if p1 > p2: reward = 100
-            elif p1 < p2: reward = -100
-            else: reward = 0
-        else:
-            reward = 1 # 正常落子的生存獎勵
-
-        return self._get_masked_obs(), reward, game_over, False, {}
 
 # =====================================================================
 # 4. 初始化環境與模型
