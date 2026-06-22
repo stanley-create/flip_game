@@ -1,0 +1,21 @@
+# 虛擬環境 (絕對不要推送到 GitHub)
+.venv/
+.env/
+venv/
+env/
+
+# Python 快取檔案
+__pycache__/
+*.py[cod]
+
+# Streamlit 機密檔 (這是最重要的！確保金鑰不外流)
+.streamlit/secrets.toml
+
+# 大型模型檔案 (依需求，若不想上傳 Git 可保留)
+
+*.h5
+*.pkl
+
+# 系統垃圾檔
+.DS_Store
+Thumbs.db
