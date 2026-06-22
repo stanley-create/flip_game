@@ -9,16 +9,28 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.monitor import Monitor
 
+# 1. 偵測環境與設定路徑
+IS_COLAB = 'COLAB_GPU' in os.environ or os.path.exists('/content')
 
-# 💡【全新出發】改用 v2 版本名稱，徹底拋棄之前壞掉的絕望大腦記憶
+if IS_COLAB:
+    print("🤖 偵測到 Colab 環境，掛載 Google Drive...")
+    from google.colab import drive
+    drive.mount('/content/drive')
+    MODEL_DIR = "/content/drive/MyDrive/AI"
+else:
+    print("💻 偵測到本地/伺服器環境，使用本地資料夾 ./models")
+    MODEL_DIR = os.path.join(os.getcwd(), "models")
+
+# 2. 自動建立目錄 (只留這一次就夠了)
+if not os.path.exists(MODEL_DIR):
+    os.makedirs(MODEL_DIR)
+    print(f"✅ 已建立儲存目錄: {MODEL_DIR}")
+
+# 3. 定義路徑變數
 MODEL_PATH = os.path.join(MODEL_DIR, "ppo_blind_v2_model")
 BEST_MODEL_PATH = os.path.join(MODEL_DIR, "best_ppo_blind_v2_model")
 RECORD_TXT_PATH = os.path.join(MODEL_DIR, "best_blind_v2_record.txt")
-
 GAS_URL = "https://script.google.com/macros/s/AKfycbwYE8yW0Vx3eR9W_LIadIMI9TVI0olXAT10YkCec6ZPdbken1kzX4k30CBEZ4Fm-d4o/exec"
-
-if not os.path.exists(MODEL_DIR):
-    os.makedirs(MODEL_DIR)
 
 # =====================================================================
 # 2. 核心遊戲邏輯（真實棋盤，保留 -2 記錄鬼牌）
