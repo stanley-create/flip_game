@@ -83,6 +83,29 @@ class FlipGameEnv(gym.Env):
 
     def step(self, action):
         y, x, side = action // 8, (action % 8) // 2, 1 if action % 2 == 0 else -1
+        
+        valid = self.game.step(y, x, side)
+        
+        # 處罰犯規（重複落子）
+        if not valid:
+            return self._get_masked_obs(), -100, True, False, {}
+            
+        game_over = check_custom_game_over(self.game.board)
+        
+        if game_over:
+            p1 = np.sum(self.game.board > 0)
+            p2 = np.sum(self.game.board < 0)
+            if p1 > p2: reward = 100
+            elif p1 < p2: reward = -100
+            else: reward = 0
+            # 這裡回傳 True (game_over)
+        else:
+            # 💡 建議：生存獎勵設小一點，或者設為 0
+            # 如果你真的想要鼓勵 AI 快點結束，可以設為 -0.1 (每一回合扣一點點)
+            reward = -0.1
+
+        return self._get_masked_obs(), reward, game_over, False, {}
+        y, x, side = action // 8, (action % 8) // 2, 1 if action % 2 == 0 else -1
 
         valid = self.game.step(y, x, side)
 
