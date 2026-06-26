@@ -539,33 +539,35 @@ if show_game_board:
                         if st.session_state.phase == "PREPARE":
                             success, msg = execute_game_step(y, x, side_to_place, is_joker=True)
                             if success:
+                                # 💡 修正 1：落子成功後，立刻重新計算棋盤上真實的鬼牌總數，避免 Session State 滯後
+                                st.session_state.jokers_placed = np.sum(np.abs(game.board) == 2)
+                                
                                 if selected_mode == "🌐 全球線上對戰 (Firebase)":
-                                    # 聯網模式下，各自負責擺好各自的鬼牌
+                                    # 💡 修正 2：嚴格遵循規則，先手（玩家1）必須連續放滿 2 張鬼牌
                                     if st.session_state.jokers_placed >= 2:
-                                        game.current_player = 1
+                                        game.current_player = 2  # 放滿兩張，正式開局並換後手（紅方/玩家2）常規落子
                                         st.session_state.phase = "PLAY"
                                         db.reference(f"rooms/{st.session_state.room_id}").update({
                                             "board": game.board.tolist(),
                                             "status": "PLAY",
-                                            "current_player": 1,
-                                            "move_log": st.session_state.move_log + ["⚔️ 雙方鬼牌就位！世紀對決正式開打！"]
+                                            "current_player": 2,
+                                            "move_log": st.session_state.move_log + ["⚔️ 先手兩張鬼牌已就位！世紀對決正式開打，輪到後手紅方！"]
                                         })
                                     else:
-                                        # 換手讓另一個玩家布置鬼牌
-                                        game.current_player = 3 - game.current_player
+                                        # 未滿兩張，不換手！維持 current_player 為先手，繼續同步雲端
                                         db.reference(f"rooms/{st.session_state.room_id}").update({
                                             "board": game.board.tolist(),
                                             "current_player": game.current_player,
                                             "move_log": st.session_state.move_log
                                         })
                                 else:
-                                    # 本地模式
+                                    # 本地模式（單人 VS AI 或 雙人本地）
                                     if st.session_state.jokers_placed >= 2:
-                                        game.current_player = 2
+                                        game.current_player = 2  # 先手放完兩張鬼牌，換後手
                                         st.session_state.phase = "PLAY"
                                 st.rerun()
-                            else: st.toast(f"❌ {msg}")
-                        
+                            else: 
+                                st.toast(f"❌ {msg}")
                         elif st.session_state.phase == "PLAY":
                             success, msg = execute_game_step(y, x, side_to_place)
                             if success:
@@ -641,9 +643,11 @@ if show_game_board:
                 y, x, side = empty_slots[idx][0], empty_slots[idx][1], np.random.choice([1, -1])
                 
                 execute_game_step(y, x, side, is_joker=True)
-                st.session_state.jokers_placed += 1
+                
+                # 💡 修正 3：讓 AI 同樣讀取真實棋盤鬼牌數，確保放滿兩張時精準切換
+                st.session_state.jokers_placed = np.sum(np.abs(game.board) == 2)
                 if st.session_state.jokers_placed >= 2:
-                    st.session_state.game.current_player = 1 
+                    st.session_state.game.current_player = 1 # AI（先手）放完兩張，換人類（後手）常規落子
                     st.session_state.phase = "PLAY"
                 st.rerun()
 
