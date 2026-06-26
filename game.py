@@ -177,3 +177,25 @@ for i in range(1000):
         print(f"⚠️ 同步暫時失敗: {e}")
 
     time.sleep(5)
+
+# =====================================================================
+# 🧰 防火牆：確保只有直接執行 game.py 時才會觸發訓練
+# =====================================================================
+if __name__ == "__main__":
+    print("🚀 開始健康訓練（移除投降干擾，AI 將逐步學會不犯規與獲勝）...")
+    for i in range(1000):
+        model.learn(total_timesteps=5000, reset_num_timesteps=False)
+        model.save(MODEL_PATH)
+        
+        mean_reward, _ = evaluate_policy(model, env, n_eval_episodes=20)
+        current_win_rate = (mean_reward + 100) / 2 
+
+        if mean_reward > best_mean_reward:
+            best_mean_reward = mean_reward
+            best_win_rate = current_win_rate
+            model.save(BEST_MODEL_PATH)
+            with open(RECORD_TXT_PATH, \"w\") as f:
+                f.write(f\"{best_mean_reward}\\n{best_win_rate}\")
+            print(f\"🎉 突破紀錄！新最佳勝率: {best_win_rate:.2f}%，已安全存檔！\")
+        else:
+            print(f\" 🚩 本輪評估勝率:...\")
