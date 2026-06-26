@@ -194,8 +194,8 @@ if __name__ == "__main__":
             best_mean_reward = mean_reward
             best_win_rate = current_win_rate
             model.save(BEST_MODEL_PATH)
-            with open(RECORD_TXT_PATH, \"w\") as f:
-                f.write(f\"{best_mean_reward}\\n{best_win_rate}\")
-            print(f\"🎉 突破紀錄！新最佳勝率: {best_win_rate:.2f}%，已安全存檔！\")
+            with open(RECORD_TXT_PATH, "w") as f:
+                f.write(f"{best_mean_reward}\n{best_win_rate}")
+            print(f"🎉 突破紀錄！新最佳勝率: {best_win_rate:.2f}%，已安全存檔！")
         else:
-            print(f\" 🚩 本輪評估勝率:...\")
+            print(f"🚩 本輪評估勝率: {current_win_rate:.2f}%")
